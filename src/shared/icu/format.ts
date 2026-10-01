@@ -1,4 +1,11 @@
+import {pseudoText, wrapPseudoRender} from './pseudo';
+import type {PseudoModeId} from './pseudo';
 import type {IcuNode, Values} from './types';
+
+export type FormatOptions = {
+  /** Pseudo-localization mode; only literal text is affected. */
+  pseudo?: PseudoModeId | null;
+};
 
 export type FormatResult = {
   rendered: string;
@@ -7,9 +14,15 @@ export type FormatResult = {
 };
 
 /** Render a parsed message for a locale using Intl plural/number/date rules. */
-export function formatMessage(nodes: IcuNode[], values: Values, locale: string): FormatResult {
+export function formatMessage(
+  nodes: IcuNode[],
+  values: Values,
+  locale: string,
+  options: FormatOptions = {},
+): FormatResult {
   const missing = new Set<string>();
-  const rendered = renderNodes(nodes, values, locale, missing, null);
+  let rendered = renderNodes(nodes, values, locale, missing, null, options.pseudo ?? null);
+  if (options.pseudo) rendered = wrapPseudoRender(rendered, options.pseudo);
   return {rendered, missingValues: [...missing]};
 }
 
@@ -19,12 +32,14 @@ function renderNodes(
   locale: string,
   missing: Set<string>,
   pluralContext: {value: number} | null,
+  pseudo: PseudoModeId | null,
 ): string {
   let out = '';
   for (const node of nodes) {
     switch (node.type) {
       case 'text':
-        out += node.value;
+        // Only literal, translatable copy is pseudo-localized.
+        out += pseudo ? pseudoText(node.value, pseudo) : node.value;
         break;
       case 'pound':
         out += pluralContext ? formatNumber(pluralContext.value, null, locale) : '#';
@@ -79,7 +94,7 @@ function renderNodes(
           out += `{${node.name}}`;
           break;
         }
-        out += renderNodes(option.nodes, values, locale, missing, {value: num - node.offset});
+        out += renderNodes(option.nodes, values, locale, missing, {value: num - node.offset}, pseudo);
         break;
       }
       case 'select': {
@@ -98,7 +113,7 @@ function renderNodes(
           out += `{${node.name}}`;
           break;
         }
-        out += renderNodes(option.nodes, values, locale, missing, pluralContext);
+        out += renderNodes(option.nodes, values, locale, missing, pluralContext, pseudo);
         break;
       }
     }

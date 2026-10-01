@@ -1,5 +1,5 @@
-import {analyzeMessage, formatMessage, stableStringify} from '../shared/icu/index';
-import type {Analysis, ParamSignature, Signature, Values} from '../shared/icu/index';
+import {analyzeMessage, formatMessage, PSEUDO_MODE_IDS, stableStringify} from '../shared/icu/index';
+import type {Analysis, ParamSignature, PseudoModeId, Signature, Values} from '../shared/icu/index';
 
 /** A named set of parameter values the user can preview the draft with. */
 export type Scenario = {id: string; name: string; values: Record<string, string>};
@@ -17,11 +17,22 @@ export type PreviewState = {
   baseSignature: string | null;
   /** True when the current draft's signature differs from baseSignature. */
   invalid: boolean;
+  /** Renders in the selected real locale. */
   renders: Record<string, ScenarioRender>;
+  /**
+   * Pseudo-localized renders, keyed by mode. Derived only — they are never
+   * saved and do not participate in revisions; kept (and marked stale) under
+   * the same last-valid-preview rules as the real renders.
+   */
+  pseudoRenders: Record<PseudoModeId, Record<string, ScenarioRender>>;
 };
 
+function emptyPseudoRenders(): Record<PseudoModeId, Record<string, ScenarioRender>> {
+  return {'en-XA': {}, 'ar-XB': {}};
+}
+
 export function createPreviewState(): PreviewState {
-  return {scenarios: [], baseSignature: null, invalid: false, renders: {}};
+  return {scenarios: [], baseSignature: null, invalid: false, renders: {}, pseudoRenders: emptyPseudoRenders()};
 }
 
 let nextId = 1;
@@ -37,7 +48,12 @@ export function addScenario(state: PreviewState, name?: string): PreviewState {
 export function removeScenario(state: PreviewState, id: string): PreviewState {
   const renders = {...state.renders};
   delete renders[id];
-  return {...state, scenarios: state.scenarios.filter(scenario => scenario.id !== id), renders};
+  const pseudoRenders = emptyPseudoRenders();
+  for (const mode of PSEUDO_MODE_IDS) {
+    pseudoRenders[mode] = {...state.pseudoRenders[mode]};
+    delete pseudoRenders[mode][id];
+  }
+  return {...state, scenarios: state.scenarios.filter(scenario => scenario.id !== id), renders, pseudoRenders};
 }
 
 export function renameScenario(state: PreviewState, id: string, name: string): PreviewState {
@@ -69,25 +85,37 @@ export function setScenarioValue(state: PreviewState, id: string, param: string,
  */
 export function applyAnalysis(state: PreviewState, analysis: Analysis, locale: string): PreviewState {
   if (!analysis.ok) {
-    const renders = Object.fromEntries(
-      Object.entries(state.renders).map(([id, render]) => [id, {...render, stale: true}]),
-    );
-    return {...state, renders};
+    const markStale = (renders: Record<string, ScenarioRender>) =>
+      Object.fromEntries(Object.entries(renders).map(([id, render]) => [id, {...render, stale: true}]));
+    const renders = markStale(state.renders);
+    const pseudoRenders = emptyPseudoRenders();
+    for (const mode of PSEUDO_MODE_IDS) pseudoRenders[mode] = markStale(state.pseudoRenders[mode]);
+    return {...state, renders, pseudoRenders};
   }
 
   const signatureKey = stableStringify(analysis.signature);
   const invalid = state.baseSignature != null && state.baseSignature !== signatureKey;
   const renders: Record<string, ScenarioRender> = {};
+  const pseudoRenders = emptyPseudoRenders();
   for (const scenario of state.scenarios) {
     const coerced = coerceValues(analysis.signature, scenario.values);
     const result = formatMessage(analysis.nodes, coerced, locale);
     renders[scenario.id] = {rendered: result.rendered, missingValues: result.missingValues, stale: false};
+    for (const mode of PSEUDO_MODE_IDS) {
+      const pseudoResult = formatMessage(analysis.nodes, coerced, locale, {pseudo: mode});
+      pseudoRenders[mode][scenario.id] = {
+        rendered: pseudoResult.rendered,
+        missingValues: pseudoResult.missingValues,
+        stale: false,
+      };
+    }
   }
   return {
     ...state,
     baseSignature: state.baseSignature ?? signatureKey,
     invalid,
     renders,
+    pseudoRenders,
   };
 }
 

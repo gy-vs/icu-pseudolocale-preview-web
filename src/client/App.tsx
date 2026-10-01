@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {AlertTriangle, CheckCircle2, Clock, Languages, Plus, Save, Trash2, XCircle} from 'lucide-react';
-import {analyzeMessage} from '../shared/icu/index';
-import type {Diagnostic, ParamSignature, Signature} from '../shared/icu/index';
+import {AlertTriangle, CheckCircle2, Clock, EyeOff, Languages, Plus, Save, Trash2, XCircle} from 'lucide-react';
+import {analyzeMessage, PSEUDO_MODES, PSEUDO_MODE_IDS} from '../shared/icu/index';
+import type {Diagnostic, ParamSignature, PseudoModeId, Signature} from '../shared/icu/index';
 import {
   addScenario,
   applyAnalysis,
@@ -37,6 +37,12 @@ export default function App() {
   const [draft, setDraft] = useState('');
   const [status, setStatus] = useState('Ready');
   const [previewStates, setPreviewStates] = useState<Record<string, PreviewState>>({});
+  /**
+   * Render mode: null shows the real selected-locale preview; a pseudo mode id
+   * shows a temporary pseudo-localized view. This is view-only state — it is
+   * never sent to the server, so it cannot trigger saves or change revisions.
+   */
+  const [pseudoMode, setPseudoMode] = useState<PseudoModeId | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   /** True only when the draft was typed for the current locale/key (guards autosave against locale switches). */
   const dirtyRef = useRef(false);
@@ -216,7 +222,39 @@ export default function App() {
             <span className="pill muted">
               plural: {locales.find(info => info.locale === locale)?.pluralCategories.join(', ') || '…'}
             </span>
+            {pseudoMode && <span className="pill pseudo">pseudo · not saved</span>}
           </p>
+
+          <div className="toolbar mode-switch" role="group" aria-label="Preview mode">
+            <button
+              className={pseudoMode === null ? 'active' : ''}
+              aria-pressed={pseudoMode === null}
+              onClick={() => setPseudoMode(null)}
+            >
+              Real preview
+            </button>
+            {PSEUDO_MODE_IDS.map(id => (
+              <button
+                key={id}
+                className={pseudoMode === id ? 'active' : ''}
+                aria-pressed={pseudoMode === id}
+                title={PSEUDO_MODES[id].blurb}
+                onClick={() => setPseudoMode(id)}
+              >
+                {id} · {PSEUDO_MODES[id].label}
+              </button>
+            ))}
+          </div>
+
+          {pseudoMode && (
+            <div className="pseudo-banner" role="note">
+              <EyeOff size={15}/>
+              <span>
+                Pseudo preview ({PSEUDO_MODES[pseudoMode].id}) — {PSEUDO_MODES[pseudoMode].blurb}{' '}
+                Scenario values, numbers and dates stay real; nothing is written to any locale.
+              </span>
+            </div>
+          )}
 
           {preview.invalid && (
             <div className="invalid-banner" role="alert">
@@ -239,7 +277,10 @@ export default function App() {
           {preview.scenarios.length === 0 && <p className="muted-text">No scenarios yet — add one to preview parameter values.</p>}
 
           {preview.scenarios.map(scenario => {
-            const render = preview.renders[scenario.id];
+            const render = pseudoMode
+              ? preview.pseudoRenders[pseudoMode][scenario.id]
+              : preview.renders[scenario.id];
+            const renderDir = pseudoMode ? PSEUDO_MODES[pseudoMode].dir : undefined;
             return (
               <div className="scenario" key={scenario.id}>
                 <div className="scenario-head">
@@ -272,7 +313,10 @@ export default function App() {
                 </div>
 
                 {render && (
-                  <p className={render.stale ? 'render stale' : 'render'}>
+                  <p
+                    className={`render${render.stale ? ' stale' : ''}${pseudoMode ? ' pseudo' : ''}`}
+                    dir={renderDir}
+                  >
                     {render.stale && <span className="badge warning">stale</span>}
                     {render.rendered}
                   </p>

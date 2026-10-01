@@ -1,12 +1,17 @@
 import {formatMessage} from './format';
+import type {FormatOptions} from './format';
 import {parseMessage} from './parser';
+import {isPseudoModeId, PSEUDO_MODE_IDS, PSEUDO_MODES, pseudoText, wrapPseudoRender} from './pseudo';
+import type {PseudoMode, PseudoModeId} from './pseudo';
 import {buildTargetIndex, checkLocaleCoverage, compareSignatures, extractSignature} from './signature';
 import type {Analysis, Diagnostic} from './types';
 
 export * from './types';
 export {formatMessage} from './format';
-export type {FormatResult} from './format';
+export type {FormatOptions, FormatResult} from './format';
 export {KNOWN_PLURAL_KEYWORDS, parseMessage} from './parser';
+export {isPseudoModeId, PSEUDO_MODE_IDS, PSEUDO_MODES, pseudoText, wrapPseudoRender} from './pseudo';
+export type {PseudoMode, PseudoModeId} from './pseudo';
 export {buildTargetIndex, checkLocaleCoverage, compareSignatures, extractSignature} from './signature';
 
 export type AnalyzeOptions = {
@@ -59,9 +64,10 @@ export function tryFormat(
   message: string,
   values: Record<string, string | number | boolean | null | undefined>,
   locale: string,
+  options: FormatOptions = {},
 ): {rendered: string; missingValues: string[]; diagnostics: Diagnostic[]} | null {
   const analysis = analyzeMessage(message, {locale});
   if (!analysis.ok) return null;
-  const result = formatMessage(analysis.nodes, values, locale);
+  const result = formatMessage(analysis.nodes, values, locale, options);
   return {...result, diagnostics: analysis.diagnostics};
 }

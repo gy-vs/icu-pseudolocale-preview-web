@@ -1,7 +1,7 @@
 import express from 'express';
 import {fileURLToPath} from 'node:url';
-import {analyzeMessage, formatMessage, stableStringify} from '../shared/icu/index';
-import type {Diagnostic, Signature, Values} from '../shared/icu/index';
+import {analyzeMessage, formatMessage, isPseudoModeId, PSEUDO_MODES, stableStringify} from '../shared/icu/index';
+import type {Diagnostic, PseudoModeId, Signature, Values} from '../shared/icu/index';
 
 const SOURCE_LOCALE = 'en';
 const LOCALES = [SOURCE_LOCALE, 'fr-FR', 'ru', 'ar', 'ja'];
@@ -155,21 +155,32 @@ export function createApp() {
     const message = String(req.body.message ?? '');
     const locale = String(req.body.locale || SOURCE_LOCALE);
     const values: Values = req.body.values ?? {};
+    // Pseudo-localization is a render-time-only view: it is validated with the
+    // real locale's plural/format rules and never stored.
+    const pseudoInput = req.body.pseudo ?? null;
+    if (pseudoInput != null && pseudoInput !== '' && !isPseudoModeId(pseudoInput)) {
+      res.status(400).json({error: 'UNKNOWN_PSEUDO_MODE', pseudo: pseudoInput});
+      return;
+    }
+    const pseudo: PseudoModeId | null =
+      pseudoInput == null || pseudoInput === '' ? null : pseudoInput;
     const analysis = analyzeMessage(message, {
       locale,
       sourceMessage: typeof req.body.sourceMessage === 'string' ? req.body.sourceMessage : undefined,
     });
     if (!analysis.ok) {
-      res.json({ok: false, signature: analysis.signature, diagnostics: analysis.diagnostics});
+      res.json({ok: false, pseudo, dir: null, signature: analysis.signature, diagnostics: analysis.diagnostics});
       return;
     }
-    const rendered = formatMessage(analysis.nodes, values, locale);
+    const rendered = formatMessage(analysis.nodes, values, locale, {pseudo});
     res.json({
       ok: true,
       rendered: rendered.rendered,
       missingValues: rendered.missingValues,
       signature: analysis.signature,
       diagnostics: analysis.diagnostics,
+      pseudo,
+      dir: pseudo ? PSEUDO_MODES[pseudo].dir : null,
     });
   });
 

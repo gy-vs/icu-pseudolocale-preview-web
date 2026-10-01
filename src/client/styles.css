@@ -30,6 +30,12 @@ textarea { width: 100%; min-height: 420px; resize: vertical; padding: 12px; bord
 .event strong { display: block; margin-bottom: 4px; }
 .pill { display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border-radius: 999px; color: #285347; background: #dcece6; font-size: 12px; }
 .pill.muted { color: #53625b; background: #e8ece9; }
+.pill.pseudo { color: #4a2b72; background: #e8def7; }
+.mode-switch { flex-wrap: wrap; }
+.mode-switch button { min-height: 30px; font-size: 12px; color: #53625b; }
+.mode-switch button.active { color: #fff; border-color: #5b3a8c; background: #5b3a8c; }
+.pseudo-banner { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 12px; padding: 9px 11px; border: 1px solid #cfbef0; border-radius: 6px; color: #4a2b72; background: #f4effc; font-size: 13px; }
+.pseudo-banner svg { flex-shrink: 0; margin-top: 1px; }
 .badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 11px; }
 .badge.error { color: #8c1f28; background: #f7d9dc; }
 .badge.warning { color: #7a4b00; background: #fbe9c8; }
@@ -55,6 +61,8 @@ button.icon { display: inline-flex; align-items: center; justify-content: center
 .param input, .param select { width: 100%; min-height: 30px; padding: 0 8px; border: 1px solid #c6d0ca; border-radius: 6px; background: #fbfcfb; }
 .render { margin: 6px 0 0; padding: 9px 11px; border-left: 3px solid #176b55; border-radius: 4px; background: #eef6f2; }
 .render.stale { border-left-color: #d9b25f; background: #fdf8ec; }
+.render.pseudo { border-left-color: #5b3a8c; background: #f4effc; }
+.render[dir="rtl"] { text-align: right; border-left: 0; border-right: 3px solid #5b3a8c; }
 .render .badge { margin: 0 8px 0 0; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; }
 @media (max-width: 900px) {

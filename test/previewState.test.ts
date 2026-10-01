@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {analyzeMessage} from '../src/shared/icu/index';
+import {analyzeMessage, formatMessage} from '../src/shared/icu/index';
 import {
   addScenario,
   applyAnalysis,
@@ -115,6 +115,74 @@ describe('preview scenarios', () => {
     state = removeScenario(state, id);
     expect(state.scenarios).toHaveLength(0);
     expect(state.renders[id]).toBeUndefined();
+  });
+});
+
+describe('pseudo-localized scenario renders', () => {
+  it('renders every scenario for both pseudo modes from the same values', () => {
+    let [state, id] = withScenario(createPreviewState(), {count: '2'});
+    state = applyAnalysis(state, analyzed(PLURAL), 'en');
+    const xa = state.pseudoRenders['en-XA'][id];
+    const xb = state.pseudoRenders['ar-XB'][id];
+    expect(xa.rendered).toBe('⟦2 îŧémş~~⟧');
+    expect(xb.rendered).toBe('[!2 items!]');
+    // Missing values are detected the same way; nothing is decorated as missing here.
+    expect(xa.missingValues).toEqual([]);
+    expect(xb.missingValues).toEqual([]);
+    expect(xa.stale).toBe(false);
+  });
+
+  it('uses the selected real locale plural/format rules under pseudo mode', () => {
+    let [state, id] = withScenario(createPreviewState(), {count: '2'});
+    const ru = '{count, plural, one {# штука} few {# штуки} many {# штук} other {# штуки}}';
+    state = applyAnalysis(state, analyzed(ru, 'ru'), 'ru');
+    // Non-Latin copy stays unchanged, wrapped in pseudo markers.
+    expect(state.pseudoRenders['en-XA'][id].rendered).toBe('⟦2 штуки⟧');
+    expect(state.pseudoRenders['ar-XB'][id].rendered).toBe('[!2 штуки!]');
+  });
+
+  it('matches the shared engine exactly so client and server cannot drift', () => {
+    let [state, id] = withScenario(createPreviewState(), {count: '2'});
+    const analysis = analyzed(PLURAL);
+    state = applyAnalysis(state, analysis, 'en');
+    for (const pseudo of ['en-XA', 'ar-XB'] as const) {
+      const engine = formatMessage(analysis.nodes, {count: 2}, 'en', {pseudo});
+      expect(state.pseudoRenders[pseudo][id].rendered).toBe(engine.rendered);
+      expect(state.pseudoRenders[pseudo][id].missingValues).toEqual(engine.missingValues);
+    }
+  });
+
+  it('is stable across repeated re-analysis (same text for repeated toggles)', () => {
+    let [state, id] = withScenario(createPreviewState(), {count: '5'});
+    state = applyAnalysis(state, analyzed(PLURAL), 'en');
+    const first = state.pseudoRenders['en-XA'][id].rendered;
+    for (let i = 0; i < 5; i++) state = applyAnalysis(state, analyzed(PLURAL), 'en');
+    expect(state.pseudoRenders['en-XA'][id].rendered).toBe(first);
+  });
+
+  it('keeps the last pseudo render and marks it stale while the draft is invalid', () => {
+    let [state, id] = withScenario(createPreviewState(), {count: '3'});
+    state = applyAnalysis(state, analyzed(PLURAL), 'en');
+    expect(state.pseudoRenders['ar-XB'][id]).toMatchObject({rendered: '[!3 items!]', stale: false});
+
+    const broken = analyzeMessage('{count, plural, one {# item}', {locale: 'en'});
+    state = applyAnalysis(state, broken, 'en');
+    expect(state.pseudoRenders['en-XA'][id]).toMatchObject({stale: true});
+    expect(state.pseudoRenders['ar-XB'][id]).toMatchObject({rendered: '[!3 items!]', stale: true});
+
+    // Recovery re-renders and clears stale for pseudo modes as well.
+    state = applyAnalysis(state, analyzed('{count, plural, one {# thing} other {# things}}'), 'en');
+    expect(state.pseudoRenders['ar-XB'][id]).toMatchObject({rendered: '[!3 things!]', stale: false});
+  });
+
+  it('removes pseudo renders together with their scenario', () => {
+    let [state, id] = withScenario(createPreviewState(), {count: '1'});
+    state = applyAnalysis(state, analyzed(PLURAL), 'en');
+    expect(state.pseudoRenders['en-XA'][id]).toBeDefined();
+    expect(state.pseudoRenders['ar-XB'][id]).toBeDefined();
+    state = removeScenario(state, id);
+    expect(state.pseudoRenders['en-XA'][id]).toBeUndefined();
+    expect(state.pseudoRenders['ar-XB'][id]).toBeUndefined();
   });
 });
 

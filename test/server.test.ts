@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import request from 'supertest';
 import {createApp} from '../src/server/index';
-import {stableStringify} from '../src/shared/icu/index';
+import {analyzeMessage, formatMessage, stableStringify} from '../src/shared/icu/index';
 
 describe('message storage with signatures', () => {
   it('stores a structured signature for every message', async () => {
@@ -160,6 +160,99 @@ describe('preview endpoint', () => {
     expect(response.body.ok).toBe(true); // warnings do not block rendering
     const codes = response.body.diagnostics.map((d: {code: string}) => d.code);
     expect(codes).toContain('MISSING_LOCALE_CATEGORY');
+  });
+});
+
+describe('pseudo-localized preview', () => {
+  const cart = '{count, plural, =0 {Your cart is empty} one {# item in your cart} other {# items in your cart}}';
+
+  it('renders accented Latin sentences with real values and plural rules', async () => {
+    const app = createApp();
+    const response = await request(app)
+      .post('/api/preview')
+      .send({message: cart, locale: 'fr-FR', pseudo: 'en-XA', values: {count: 2}});
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    expect(response.body.pseudo).toBe('en-XA');
+    expect(response.body.dir).toBe('ltr');
+    expect(response.body.rendered).toBe('⟦2 îŧémş~~ îñ~ ŷöüř~~ çåřŧ~~⟧');
+  });
+
+  it('renders the RTL mirror unchanged and reports rtl direction', async () => {
+    const app = createApp();
+    const response = await request(app)
+      .post('/api/preview')
+      .send({message: 'Welcome, {name}!', locale: 'ar', pseudo: 'ar-XB', values: {name: 'Ari'}});
+    expect(response.body.ok).toBe(true);
+    expect(response.body.dir).toBe('rtl');
+    expect(response.body.rendered).toBe('[!Welcome, Ari!!]');
+  });
+
+  it('agrees byte-for-byte with the shared engine the browser uses', async () => {
+    const app = createApp();
+    const values = {gender: 'female', host: 'Ann', count: 3};
+    const message =
+      '{gender, select, female {{host} invited you and {count, plural, offset:1 =0 {nobody else} one {# other person} other {# other people}} to her party} ' +
+      'other {{host} invited you and {count, plural, offset:1 =0 {nobody else} one {# other person} other {# other people}} to their party}}';
+    for (const pseudo of ['en-XA', 'ar-XB'] as const) {
+      const response = await request(app).post('/api/preview').send({message, locale: 'fr-FR', pseudo, values});
+      const shared = formatMessage(analyzeMessage(message, {locale: 'fr-FR'}).nodes, values, 'fr-FR', {pseudo});
+      expect(response.body.rendered).toBe(shared.rendered);
+      expect(response.body.missingValues).toEqual(shared.missingValues);
+    }
+  });
+
+  it('does not change diagnostics or ok-ness compared with the real preview', async () => {
+    const app = createApp();
+    const broken = '{count, plural, one {x}';
+    const real = await request(app).post('/api/preview').send({message: broken, locale: 'en', values: {count: 1}});
+    const pseudo = await request(app)
+      .post('/api/preview')
+      .send({message: broken, locale: 'en', pseudo: 'en-XA', values: {count: 1}});
+    expect(pseudo.body.ok).toBe(false);
+    expect(pseudo.body.rendered).toBeUndefined();
+    expect(pseudo.body.diagnostics).toEqual(real.body.diagnostics);
+  });
+
+  it('reports missing values without decorating their placeholders', async () => {
+    const app = createApp();
+    const response = await request(app)
+      .post('/api/preview')
+      .send({message: 'Welcome, {name}!', locale: 'en', pseudo: 'en-XA', values: {}});
+    expect(response.body.rendered).toBe('⟦Ŵéłçömé~~~, {name}!⟧');
+    expect(response.body.missingValues).toEqual(['name']);
+  });
+
+  it('rejects unknown pseudo modes', async () => {
+    const app = createApp();
+    const response = await request(app)
+      .post('/api/preview')
+      .send({message: 'Hi', locale: 'en', pseudo: 'xx-QQ', values: {}});
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe('UNKNOWN_PSEUDO_MODE');
+  });
+
+  it('never writes a translation or bumps a revision', async () => {
+    const app = createApp();
+    const before = await request(app).get('/api/messages?locale=fr-FR');
+    const welcomeBefore = before.body.find((row: {key: string}) => row.key === 'welcome');
+    await request(app)
+      .post('/api/preview')
+      .send({message: welcomeBefore.value + ' ', locale: 'fr-FR', pseudo: 'en-XA', values: {name: 'Ari'}});
+    await request(app)
+      .post('/api/preview')
+      .send({message: welcomeBefore.value + ' ', locale: 'fr-FR', pseudo: 'ar-XB', values: {name: 'Ari'}});
+    const after = await request(app).get('/api/messages?locale=fr-FR');
+    const welcomeAfter = after.body.find((row: {key: string}) => row.key === 'welcome');
+    expect(welcomeAfter.value).toBe(welcomeBefore.value);
+    expect(welcomeAfter.revision).toBe(welcomeBefore.revision);
+  });
+
+  it('omits pseudo metadata when no pseudo mode is requested', async () => {
+    const app = createApp();
+    const response = await request(app).post('/api/preview').send({message: 'Hi', locale: 'en', values: {}});
+    expect(response.body.pseudo).toBeNull();
+    expect(response.body.dir).toBeNull();
   });
 });
 
