@@ -30,6 +30,7 @@ textarea { width: 100%; min-height: 420px; resize: vertical; padding: 12px; bord
 .event strong { display: block; margin-bottom: 4px; }
 .pill { display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border-radius: 999px; color: #285347; background: #dcece6; font-size: 12px; }
 .pill.muted { color: #53625b; background: #e8ece9; }
+.pill.pseudo { color: #4a2b6b; background: #e8def5; }
 .badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 11px; }
 .badge.error { color: #8c1f28; background: #f7d9dc; }
 .badge.warning { color: #7a4b00; background: #fbe9c8; }
@@ -56,6 +57,12 @@ button.icon { display: inline-flex; align-items: center; justify-content: center
 .render { margin: 6px 0 0; padding: 9px 11px; border-left: 3px solid #176b55; border-radius: 4px; background: #eef6f2; }
 .render.stale { border-left-color: #d9b25f; background: #fdf8ec; }
 .render .badge { margin: 0 8px 0 0; }
+.mode-toggle { flex-wrap: wrap; }
+.mode-toggle button { min-height: 30px; padding: 0 10px; font-size: 13px; }
+.mode-toggle button.active { color: #fff; border-color: #5d3f86; background: #5d3f86; }
+.pseudo-render { border-left-color: #5d3f86; background: #f3eefa; }
+.pseudo-render.stale { border-left-color: #d9b25f; background: #fdf8ec; }
+.pseudo-render[dir="rtl"] { text-align: right; font-size: 1.08em; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; }
 @media (max-width: 900px) {
   .workspace { grid-template-columns: 1fr; }

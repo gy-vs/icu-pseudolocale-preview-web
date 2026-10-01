@@ -1,7 +1,7 @@
 import express from 'express';
 import {fileURLToPath} from 'node:url';
-import {analyzeMessage, formatMessage, stableStringify} from '../shared/icu/index';
-import type {Diagnostic, Signature, Values} from '../shared/icu/index';
+import {analyzeMessage, formatMessage, formatPseudo, isPseudoMode, stableStringify} from '../shared/icu/index';
+import type {Diagnostic, PseudoMode, Signature, Values} from '../shared/icu/index';
 
 const SOURCE_LOCALE = 'en';
 const LOCALES = [SOURCE_LOCALE, 'fr-FR', 'ru', 'ar', 'ja'];
@@ -155,19 +155,34 @@ export function createApp() {
     const message = String(req.body.message ?? '');
     const locale = String(req.body.locale || SOURCE_LOCALE);
     const values: Values = req.body.values ?? {};
+    // Pseudo previews are a view option: validated, never persisted, and they
+    // never change which message gets analyzed or which diagnostics result.
+    const pseudo = req.body.pseudo == null ? null : isPseudoMode(req.body.pseudo) ? (req.body.pseudo as PseudoMode) : undefined;
+    if (pseudo === undefined) {
+      res.status(400).json({error: 'INVALID_PSEUDO_MODE', modes: ['expand', 'rtl']});
+      return;
+    }
     const analysis = analyzeMessage(message, {
       locale,
       sourceMessage: typeof req.body.sourceMessage === 'string' ? req.body.sourceMessage : undefined,
     });
     if (!analysis.ok) {
-      res.json({ok: false, signature: analysis.signature, diagnostics: analysis.diagnostics});
+      res.json({ok: false, pseudo: null, pseudoMode: pseudo, signature: analysis.signature, diagnostics: analysis.diagnostics});
       return;
     }
     const rendered = formatMessage(analysis.nodes, values, locale);
+    // Produced by the same shared engine the browser uses, so the pseudo
+    // sentence here is identical to what the client preview shows. Missing
+    // values are shared with the real render (same branch/value selection).
+    const pseudoRenders = pseudo
+      ? {[pseudo]: formatPseudo(analysis.nodes, values, pseudo).rendered}
+      : null;
     res.json({
       ok: true,
       rendered: rendered.rendered,
       missingValues: rendered.missingValues,
+      pseudo: pseudoRenders,
+      pseudoMode: pseudo,
       signature: analysis.signature,
       diagnostics: analysis.diagnostics,
     });

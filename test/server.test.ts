@@ -1,7 +1,8 @@
 import {describe, expect, it} from 'vitest';
 import request from 'supertest';
 import {createApp} from '../src/server/index';
-import {stableStringify} from '../src/shared/icu/index';
+import {analyzeMessage, stableStringify} from '../src/shared/icu/index';
+import {addScenario, applyAnalysis, createPreviewState, setScenarioValue} from '../src/client/previewState';
 
 describe('message storage with signatures', () => {
   it('stores a structured signature for every message', async () => {
@@ -160,6 +161,108 @@ describe('preview endpoint', () => {
     expect(response.body.ok).toBe(true); // warnings do not block rendering
     const codes = response.body.diagnostics.map((d: {code: string}) => d.code);
     expect(codes).toContain('MISSING_LOCALE_CATEGORY');
+  });
+
+  it('renders pseudo views with the same shared engine as the browser', async () => {
+    const app = createApp();
+    const message = '{count, plural, =0 {Your cart is empty} one {# item in your cart} other {# items in your cart}}';
+    const response = await request(app)
+      .post('/api/preview')
+      .send({message, locale: 'fr-FR', values: {count: 2}, pseudo: 'expand'});
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    expect(response.body.pseudoMode).toBe('expand');
+    // The ordinary render is still the real French-locale render…
+    expect(response.body.rendered).toBe('2 items in your cart');
+    // …and the pseudo sentence is decorated text with the real value kept verbatim.
+    expect(response.body.pseudo.expand).toBe('2 [îţéɱŠ îñ ýöüř çàřţ!!!!!!]');
+
+    const rtl = await request(app)
+      .post('/api/preview')
+      .send({message, locale: 'ar', values: {count: 0}, pseudo: 'rtl'});
+    expect(rtl.body.pseudo.rtl).toBe('[!Your cart is empty!]');
+  });
+
+  it('keeps pseudo previews reproducible regardless of the requested locale', async () => {
+    const app = createApp();
+    const message = '{count, plural, one {# item} other {# items}}';
+    const ask = (locale: string) =>
+      request(app).post('/api/preview').send({message, locale, values: {count: 0}, pseudo: 'expand'});
+    // English picks "other" for 0; French would pick "one". Pseudo must be identical.
+    const en = await ask('en');
+    const fr = await ask('fr-FR');
+    expect(en.body.pseudo.expand).toEqual(fr.body.pseudo.expand);
+    expect(en.body.pseudo.expand).toBe('0 [îţéɱŠ!!]');
+  });
+
+  it('omits pseudo renders for invalid drafts but still returns diagnostics', async () => {
+    const app = createApp();
+    const response = await request(app)
+      .post('/api/preview')
+      .send({message: '{count, plural, one {x}', locale: 'en', values: {count: 1}, pseudo: 'rtl'});
+    expect(response.body.ok).toBe(false);
+    expect(response.body.pseudoMode).toBe('rtl');
+    expect(response.body.pseudo).toBeNull();
+    expect(response.body.diagnostics.length).toBeGreaterThan(0);
+  });
+
+  it('rejects unknown pseudo modes', async () => {
+    const app = createApp();
+    const response = await request(app)
+      .post('/api/preview')
+      .send({message: 'Hi {name}', locale: 'en', values: {}, pseudo: 'klingon'});
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe('INVALID_PSEUDO_MODE');
+  });
+
+  it('produces the exact pseudo sentence the client preview state shows', async () => {
+    const app = createApp();
+    const message =
+      '{gender, select, female {{host} invited you and {count, plural, offset:1 one {# other person} other {# other people}} to her party} ' +
+      'other {{host} invited you and {count, plural, offset:1 one {# other person} other {# other people}} to their party}}';
+    const rawValues = {gender: 'female', host: 'Ann', count: '3'};
+    const values = {gender: 'female', host: 'Ann', count: 3};
+
+    // Client path: the same pipeline App.tsx drives while typing.
+    let state = addScenario(createPreviewState(), 'main');
+    const id = state.scenarios[0].id;
+    for (const [name, value] of Object.entries(rawValues)) {
+      state = setScenarioValue(state, id, name, value);
+    }
+    state = applyAnalysis(state, analyzeMessage(message, {locale: 'ru'}), 'ru');
+    const clientExpand = state.renders[id].pseudo.expand;
+    const clientRtl = state.renders[id].pseudo.rtl;
+
+    const expand = await request(app)
+      .post('/api/preview')
+      .send({message, locale: 'ru', values, pseudo: 'expand'});
+    const rtl = await request(app)
+      .post('/api/preview')
+      .send({message, locale: 'ar', values, pseudo: 'rtl'});
+
+    expect(expand.body.pseudo.expand).toBe(clientExpand);
+    expect(rtl.body.pseudo.rtl).toBe(clientRtl);
+  });
+
+  it('does not touch stored messages or revisions when pseudo previewing', async () => {    const app = createApp();
+    const before = (await request(app).get('/api/messages?locale=en')).body.find(
+      (row: {key: string}) => row.key === 'cart',
+    );
+    await request(app)
+      .post('/api/preview')
+      .send({message: '{count, plural, other {x}}', locale: 'en', values: {count: 1}, pseudo: 'expand'});
+    await request(app)
+      .post('/api/preview')
+      .send({message: '{count, plural, other {x}}', locale: 'fr-FR', values: {count: 1}, pseudo: 'rtl'});
+    const after = (await request(app).get('/api/messages?locale=en')).body.find(
+      (row: {key: string}) => row.key === 'cart',
+    );
+    expect(after.value).toBe(before.value);
+    expect(after.revision).toBe(before.revision);
+    // No pseudo locale was created in the store either.
+    const locales = (await request(app).get('/api/locales')).body.map((info: {locale: string}) => info.locale);
+    expect(locales).not.toContain('en-XA');
+    expect(locales).not.toContain('ar-XB');
   });
 });
 

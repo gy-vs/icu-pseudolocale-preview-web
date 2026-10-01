@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {AlertTriangle, CheckCircle2, Clock, Languages, Plus, Save, Trash2, XCircle} from 'lucide-react';
-import {analyzeMessage} from '../shared/icu/index';
-import type {Diagnostic, ParamSignature, Signature} from '../shared/icu/index';
+import {analyzeMessage, PSEUDO_MODES} from '../shared/icu/index';
+import type {Diagnostic, ParamSignature, PseudoMode, Signature} from '../shared/icu/index';
 import {
   addScenario,
   applyAnalysis,
@@ -28,6 +28,17 @@ type MessageRow = {
 
 type LocaleInfo = {locale: string; source: boolean; pluralCategories: string[]};
 
+/**
+ * Temporary preview view. `null` is the real (selected-locale) preview; the
+ * pseudo modes are never sent on save and never alter stored translations.
+ */
+type PreviewMode = PseudoMode | null;
+
+const PSEUDO_LABELS: Record<PseudoMode, string> = {
+  expand: 'Expanded Latin',
+  rtl: 'Right-to-left',
+};
+
 export default function App() {
   const [locale, setLocale] = useState('fr-FR');
   const [locales, setLocales] = useState<LocaleInfo[]>([]);
@@ -37,6 +48,8 @@ export default function App() {
   const [draft, setDraft] = useState('');
   const [status, setStatus] = useState('Ready');
   const [previewStates, setPreviewStates] = useState<Record<string, PreviewState>>({});
+  // View-only toggle: survives message/locale switches but never reaches the API.
+  const [previewMode, setPreviewMode] = useState<PreviewMode>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   /** True only when the draft was typed for the current locale/key (guards autosave against locale switches). */
   const dirtyRef = useRef(false);
@@ -211,11 +224,39 @@ export default function App() {
 
         <section className="pane">
           <h2>Preview</h2>
+          <div className="toolbar mode-toggle" role="group" aria-label="Preview view">
+            <button
+              className={previewMode === null ? 'active' : ''}
+              aria-pressed={previewMode === null}
+              onClick={() => setPreviewMode(null)}
+            >
+              Real
+            </button>
+            {PSEUDO_MODES.map(mode => (
+              <button
+                key={mode}
+                className={previewMode === mode ? 'active' : ''}
+                aria-pressed={previewMode === mode}
+                onClick={() => setPreviewMode(mode)}
+              >
+                {PSEUDO_LABELS[mode]}
+              </button>
+            ))}
+          </div>
           <p>
-            <span className="pill">{locale}</span>{' '}
-            <span className="pill muted">
-              plural: {locales.find(info => info.locale === locale)?.pluralCategories.join(', ') || '…'}
-            </span>
+            {previewMode === null ? (
+              <>
+                <span className="pill">{locale}</span>{' '}
+                <span className="pill muted">
+                  plural: {locales.find(info => info.locale === locale)?.pluralCategories.join(', ') || '…'}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="pill pseudo">{PSEUDO_LABELS[previewMode]} pseudo-preview</span>{' '}
+                <span className="pill muted">temporary view · not saved · en plural/format rules</span>
+              </>
+            )}
           </p>
 
           {preview.invalid && (
@@ -272,9 +313,12 @@ export default function App() {
                 </div>
 
                 {render && (
-                  <p className={render.stale ? 'render stale' : 'render'}>
+                  <p
+                    className={render.stale ? 'render pseudo-render stale' : 'render pseudo-render'}
+                    dir={previewMode === 'rtl' ? 'rtl' : undefined}
+                  >
                     {render.stale && <span className="badge warning">stale</span>}
-                    {render.rendered}
+                    {previewMode === null ? render.rendered : (render.pseudo[previewMode] ?? render.rendered)}
                   </p>
                 )}
                 {render && render.missingValues.length > 0 && (

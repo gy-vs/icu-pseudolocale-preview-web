@@ -1,13 +1,16 @@
 import {formatMessage} from './format';
 import {parseMessage} from './parser';
+import {formatPseudo, isPseudoMode, pseudoText, PSEUDO_BASE_LOCALE, PSEUDO_MODES} from './pseudo';
 import {buildTargetIndex, checkLocaleCoverage, compareSignatures, extractSignature} from './signature';
 import type {Analysis, Diagnostic} from './types';
 
 export * from './types';
 export {formatMessage} from './format';
-export type {FormatResult} from './format';
+export type {FormatOptions, FormatResult, TextTransform} from './format';
 export {KNOWN_PLURAL_KEYWORDS, parseMessage} from './parser';
 export {buildTargetIndex, checkLocaleCoverage, compareSignatures, extractSignature} from './signature';
+export {formatPseudo, isPseudoMode, pseudoText, PSEUDO_BASE_LOCALE, PSEUDO_MODES};
+export type {PseudoMode} from './pseudo';
 
 export type AnalyzeOptions = {
   /** Locale used for plural-category coverage checks. */

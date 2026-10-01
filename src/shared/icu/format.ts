@@ -6,10 +6,26 @@ export type FormatResult = {
   missingValues: string[];
 };
 
+/**
+ * Optional transform applied only to literal message text while rendering.
+ * Substituted values (arguments, numbers, dates, `#` counters) bypass it, so
+ * pseudo-localization can decorate translatable text without touching data.
+ */
+export type TextTransform = (text: string) => string;
+
+export type FormatOptions = {
+  transformText?: TextTransform;
+};
+
 /** Render a parsed message for a locale using Intl plural/number/date rules. */
-export function formatMessage(nodes: IcuNode[], values: Values, locale: string): FormatResult {
+export function formatMessage(
+  nodes: IcuNode[],
+  values: Values,
+  locale: string,
+  options: FormatOptions = {},
+): FormatResult {
   const missing = new Set<string>();
-  const rendered = renderNodes(nodes, values, locale, missing, null);
+  const rendered = renderNodes(nodes, values, locale, missing, null, options.transformText);
   return {rendered, missingValues: [...missing]};
 }
 
@@ -19,12 +35,13 @@ function renderNodes(
   locale: string,
   missing: Set<string>,
   pluralContext: {value: number} | null,
+  transformText: TextTransform | undefined,
 ): string {
   let out = '';
   for (const node of nodes) {
     switch (node.type) {
       case 'text':
-        out += node.value;
+        out += transformText ? transformText(node.value) : node.value;
         break;
       case 'pound':
         out += pluralContext ? formatNumber(pluralContext.value, null, locale) : '#';
@@ -79,7 +96,7 @@ function renderNodes(
           out += `{${node.name}}`;
           break;
         }
-        out += renderNodes(option.nodes, values, locale, missing, {value: num - node.offset});
+        out += renderNodes(option.nodes, values, locale, missing, {value: num - node.offset}, transformText);
         break;
       }
       case 'select': {
@@ -98,7 +115,7 @@ function renderNodes(
           out += `{${node.name}}`;
           break;
         }
-        out += renderNodes(option.nodes, values, locale, missing, pluralContext);
+        out += renderNodes(option.nodes, values, locale, missing, pluralContext, transformText);
         break;
       }
     }

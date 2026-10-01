@@ -118,8 +118,48 @@ describe('preview scenarios', () => {
   });
 });
 
-describe('value coercion and signature flattening', () => {
-  it('coerces raw strings according to parameter kinds', () => {
+describe('pseudo-localized scenario renders', () => {
+  it('stores pseudo views next to the real render using the same scenario values', () => {
+    let [state, id] = withScenario(createPreviewState(), {count: '2'});
+    state = applyAnalysis(state, analyzed(PLURAL, 'fr-FR'), 'fr-FR');
+    const render = state.renders[id];
+    // The real render follows French plural rules ("2 items" -> other branch).
+    expect(render.rendered).toBe('2 items');
+    // Pseudo renders decorate the selected branch and keep the real number.
+    expect(render.pseudo.expand).toBe('2 [îţéɱŠ!!]');
+    expect(render.pseudo.rtl).toBe('2 [!items!]');
+  });
+
+  it('never decorates substituted names, numbers or dates', () => {
+    let [state, id] = withScenario(createPreviewState(), {name: 'Ari'});
+    state = applyAnalysis(state, analyzed('Welcome, {name}!'), 'en');
+    expect(state.renders[id].pseudo.expand).toBe('[Ŵéļçöɱé,!!!] Ari!');
+    expect(state.renders[id].missingValues).toEqual([]);
+  });
+
+  it('flags the stored pseudo renders stale when the draft stops parsing', () => {
+    let [state, id] = withScenario(createPreviewState(), {count: '2'});
+    state = applyAnalysis(state, analyzed(PLURAL), 'en');
+    const pseudo = state.renders[id].pseudo;
+    expect(pseudo.expand).toBeTruthy();
+
+    state = applyAnalysis(state, analyzeMessage('{count, plural, one {# item}', {locale: 'en'}), 'en');
+    // A bad draft must not look synced: the last pseudo views survive but are stale.
+    expect(state.renders[id]).toMatchObject({stale: true, pseudo});
+  });
+
+  it('keeps pseudo views stable across locale switches and re-renders', () => {
+    let [state, id] = withScenario(createPreviewState(), {count: '0'});
+    state = applyAnalysis(state, analyzed(PLURAL), 'en');
+    const enView = state.renders[id].pseudo.expand;
+    state = applyAnalysis(state, analyzed(PLURAL, 'fr-FR'), 'fr-FR');
+    state = applyAnalysis(state, analyzed(PLURAL, 'ru'), 'ru');
+    // Pseudo always builds on the fixed English base, so the sentence stays comparable.
+    expect(state.renders[id].pseudo.expand).toBe(enView);
+  });
+});
+
+describe('value coercion and signature flattening', () => {  it('coerces raw strings according to parameter kinds', () => {
     const signature = analyzed(
       '{n, plural, other {#}} {v, number} {d, date} {t, time} {s} {g, select, other {x}}',
     ).signature;

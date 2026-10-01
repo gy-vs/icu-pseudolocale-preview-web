@@ -1,12 +1,17 @@
-import {analyzeMessage, formatMessage, stableStringify} from '../shared/icu/index';
-import type {Analysis, ParamSignature, Signature, Values} from '../shared/icu/index';
+import {analyzeMessage, formatMessage, formatPseudo, PSEUDO_MODES, stableStringify} from '../shared/icu/index';
+import type {Analysis, ParamSignature, PseudoMode, Signature, Values} from '../shared/icu/index';
 
 /** A named set of parameter values the user can preview the draft with. */
 export type Scenario = {id: string; name: string; values: Record<string, string>};
 
+/** Pseudo-localized renders keyed by mode; undefined until the draft parses. */
+export type PseudoRenders = Partial<Record<PseudoMode, string>>;
+
 export type ScenarioRender = {
   rendered: string;
   missingValues: string[];
+  /** Pseudo-localized views of the same draft/scenario (same branch selection). */
+  pseudo: PseudoRenders;
   /** True when the draft no longer parses and this is the last valid render. */
   stale: boolean;
 };
@@ -81,7 +86,18 @@ export function applyAnalysis(state: PreviewState, analysis: Analysis, locale: s
   for (const scenario of state.scenarios) {
     const coerced = coerceValues(analysis.signature, scenario.values);
     const result = formatMessage(analysis.nodes, coerced, locale);
-    renders[scenario.id] = {rendered: result.rendered, missingValues: result.missingValues, stale: false};
+    // Pseudo views render the same parsed draft with the same scenario values,
+    // so diagnostics and missing values are shared with the real preview.
+    const pseudo: PseudoRenders = {};
+    for (const mode of PSEUDO_MODES) {
+      pseudo[mode] = formatPseudo(analysis.nodes, coerced, mode).rendered;
+    }
+    renders[scenario.id] = {
+      rendered: result.rendered,
+      missingValues: result.missingValues,
+      pseudo,
+      stale: false,
+    };
   }
   return {
     ...state,
